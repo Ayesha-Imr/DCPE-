@@ -1,0 +1,7 @@
+numpy
+langchain
+pymilvus
+python-dotenv
+cohere
+docling
+cryptography
