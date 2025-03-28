@@ -1,4 +1,6 @@
-# rag_encryption_module.py
+# v2_rag_encryption_module.py
+
+# This will be the actual implementation of the RagEncryptionClient class for the RAG encryption scheme once I configure the client-side key management system. 
 
 import numpy as np
 import secrets
@@ -12,6 +14,7 @@ from DCPE.crypto_module import encrypt_vector, decrypt_vector, AuthHash, Encrypt
 from DCPE.keys_module import VectorEncryptionKey, EncryptionKey, ScalingFactor, generate_random_key
 from DCPE.headers_module import KeyIdHeader, EdekType, PayloadType, encode_vector_metadata, decode_version_prefixed_value
 from DCPE.exceptions_module import DecryptError
+from DCPE.key_provider_module import KeyProvider
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
@@ -26,51 +29,88 @@ class RagEncryptionClient:
     """
     Client for orchestrating RAG encryption and decryption operations.
     """
-    def __init__(self, encryption_key: bytes, approximation_factor: float):
-        """
-        Initializes the RagEncryptionClient with a raw encryption key and approximation factor.
-
+    def __init__(self, 
+             encryption_key: bytes = None, 
+             approximation_factor: float = 1.0,
+             key_provider = None,
+             key_id: str = None):
+        """Initializes the RagEncryptionClient with encryption keys.
+        
         Args:
-            encryption_key (bytes): Raw bytes of the encryption key.
-            approximation_factor (float): Approximation factor for vector encryption.
+            encryption_key (bytes, optional): Raw encryption key bytes
+            approximation_factor (float, optional): Approximation factor for vector encryption
+            key_provider (KeyProvider, optional): Key provider implementation
+            key_id (str, optional): Key identifier to use with the key provider
+            
+        Raises:
+            ValueError: If neither encryption_key nor (key_provider and key_id) are provided
+            TypeError: If parameters are of incorrect types
         """
+        # Get key material either directly or from provider
+        if key_provider and key_id:
+            if not isinstance(key_provider, KeyProvider):
+                raise TypeError("key_provider must implement KeyProvider interface")
+            encryption_key = key_provider.get_key(key_id)
+            self.key_id = key_id
+            self.key_provider = key_provider
+        elif encryption_key:
+            self.key_id = "local-key"
+            self.key_provider = None
+        else:
+            raise ValueError("Either encryption_key or (key_provider and key_id) must be provided")
+        
+        # Validate key material
         if not isinstance(encryption_key, bytes):
             raise TypeError("encryption_key must be bytes")
         if not isinstance(approximation_factor, float):
-            raise TypeError("approximation_factor must be a float")
+            raise TypeError("approximation_factor must be a float") 
         if len(encryption_key) < 32:
             raise ValueError("Encryption key must be at least 32 bytes long")
 
-        # For simplicity in this basic version, directly using raw key bytes and scaling factor.
-        # In a more complete version, use VectorEncryptionKey and derive key from secret etc.
+        # Initialize encryption keys
         self.vector_encryption_key = VectorEncryptionKey(
             scaling_factor=ScalingFactor(approximation_factor),
             key=EncryptionKey(encryption_key)
         )
         self.approximation_factor = approximation_factor
-
-        self.text_encryption_key = EncryptionKey(encryption_key) # Using the same raw key for text encryption for simplicity in this basic version
-        self.deterministic_encryption_key = EncryptionKey(encryption_key) # Using the same raw key for deterministic encryption for simplicity in this basic version
+        self.text_encryption_key = EncryptionKey(encryption_key)
+        self.deterministic_encryption_key = EncryptionKey(encryption_key)
     
-    # Function to get or create encryption key (Modified to handle JSON file)
-    def get_or_create_encryption_key(KEY_FILE: str) -> bytes:
-        try:
-            if os.path.exists(KEY_FILE):
-                # Load existing key
-                with open(KEY_FILE, 'r') as f:
-                    key_data = json.load(f)
-                    return base64.b64decode(key_data["key"])
-            else:
-                # Generate new key
-                new_key = generate_random_key().get_bytes()
-                # Save it for future use
-                with open(KEY_FILE, 'w') as f:
-                    json.dump({"key": base64.b64encode(new_key).decode('utf-8')}, f)
-                return new_key
-        except Exception as e:
-            print(f"Error handling encryption key: {e}")
-            # Fallback to generating a new key (note: this will make previous data unreadable)
-            return generate_random_key().get_bytes()
+    def rotate_key(self, new_key_material: bytes = None, new_key_id: str = None):
+        """Rotate to a new encryption key.
+        
+        Args:
+            new_key_material (bytes, optional): New raw encryption key bytes
+            new_key_id (str, optional): New key identifier to use with the current key provider
+            
+        Raises:
+            ValueError: If neither new_key_material nor new_key_id are provided when needed
+            RuntimeError: If rotation cannot be performed with current configuration
+        """
+        # Store old keys for reference (decryption of existing data)
+        self._old_vector_key = self.vector_encryption_key
+        self._old_text_key = self.text_encryption_key
+        self._old_deterministic_key = self.deterministic_encryption_key
+        
+        # Get new key material
+        if self.key_provider and new_key_id:
+            # Get from provider if available
+            new_key = self.key_provider.get_key(new_key_id)
+            self.key_id = new_key_id
+        elif new_key_material:
+            # Use directly provided material
+            new_key = new_key_material
+        else:
+            raise ValueError("Either new_key_material or new_key_id must be provided")
+        
+        # Update current keys with new material
+        self.vector_encryption_key = VectorEncryptionKey(
+            scaling_factor=ScalingFactor(self.approximation_factor),
+            key=EncryptionKey(new_key)
+        )
+        self.text_encryption_key = EncryptionKey(new_key)
+        self.deterministic_encryption_key = EncryptionKey(new_key)
+
 
     def encrypt_vector(self, plaintext_vector: List[float]) -> Tuple[List[float], bytes]:
         """
@@ -101,7 +141,7 @@ class RagEncryptionClient:
         key_id_header = KeyIdHeader.create_header(
             edek_type=EdekType.STANDALONE,
             payload_type=PayloadType.VECTOR_METADATA,
-            key_id=1
+            key_id=hash(self.key_id) % 9999 if hasattr(self, 'key_id') else 1  # Use derived key ID from client-provided ID
         )
 
         paired_icl_info = encode_vector_metadata(

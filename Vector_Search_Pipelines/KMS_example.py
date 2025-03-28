@@ -1,7 +1,7 @@
 # Example integration of client-side KMS and DCPE
 
 import os
-from DCPE.v2_rag_encryption_module import RagEncryptionClient
+from DCPE.rag_encryption_module import RagEncryptionClient
 from DCPE.key_provider_module import KeyProvider, FileKeyProvider
 from DCPE.keys_module import generate_random_key
 
