@@ -168,8 +168,8 @@ function decodeVersionPrefixedValue(valueBytes) {
         throw new InvalidInputError("Value bytes too short to contain KeyIdHeader");
     }
 
-    const headerBytes = valueBytes.slice(0, 6);
-    const remainingBytes = valueBytes.slice(6);
+    const headerBytes = valueBytes.subarray(0, 6);
+    const remainingBytes = valueBytes.subarray(6);
     const keyIdHeader = KeyIdHeader.parseFromBytes(headerBytes);
 
     return { keyIdHeader, remainingBytes };

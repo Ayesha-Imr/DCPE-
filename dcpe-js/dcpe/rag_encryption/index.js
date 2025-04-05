@@ -108,7 +108,7 @@ class RagEncryptionClient {
         }
     
         // Ensure the key is exactly 32 bytes
-        const key = this.textEncryptionKey.getBytes().slice(0, 32);
+        const key = this.textEncryptionKey.getBytes().subarray(0, 32);
         
         const iv = crypto.randomBytes(12);
         const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -131,7 +131,7 @@ class RagEncryptionClient {
         }
     
         // Ensure the key is exactly 32 bytes
-        const key = this.textEncryptionKey.getBytes().slice(0, 32);
+        const key = this.textEncryptionKey.getBytes().subarray(0, 32);
         
         const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
         decipher.setAuthTag(tag);
@@ -153,9 +153,9 @@ class RagEncryptionClient {
         }
     
         // Ensure the key is exactly 32 bytes
-        const key = this.deterministicEncryptionKey.getBytes().slice(0, 32);
+        const key = this.deterministicEncryptionKey.getBytes().subarray(0, 32);
         
-        const iv = crypto.createHash('sha256').update(plaintext).digest().slice(0, 12);
+        const iv = crypto.createHash('sha256').update(plaintext).digest().subarray(0, 12);
         const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
         const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
     
@@ -173,11 +173,11 @@ class RagEncryptionClient {
         }
     
         // Ensure the key is exactly 32 bytes
-        const key = this.deterministicEncryptionKey.getBytes().slice(0, 32);
+        const key = this.deterministicEncryptionKey.getBytes().subarray(0, 32);
         
-        const iv = encryptedData.slice(0, 12);
-        const ciphertext = encryptedData.slice(12, -16);
-        const tag = encryptedData.slice(-16);
+        const iv = encryptedData.subarray(0, 12);
+        const ciphertext = encryptedData.subarray(12, encryptedData.length - 16);
+        const tag = encryptedData.subarray(encryptedData.length - 16);
     
         const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
         decipher.setAuthTag(tag);

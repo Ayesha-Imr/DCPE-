@@ -134,8 +134,8 @@ class VectorEncryptionKey {
             throw new InvalidKeyError('Key bytes must be at least 35 bytes long');
         }
 
-        const scalingFactorBytes = keyBytes.slice(0, 3);
-        const keyMaterialBytes = keyBytes.slice(3, 35);
+        const scalingFactorBytes = keyBytes.subarray(0, 3);
+        const keyMaterialBytes = keyBytes.subarray(3, 35);
 
         const scalingFactorU32 = parseInt(scalingFactorBytes.toString('hex'), 16);
         const scalingFactor = new ScalingFactor(scalingFactorU32);
