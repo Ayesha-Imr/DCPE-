@@ -53,24 +53,28 @@ class DecryptError extends DCPEError {
 // Errors specific to vector encryption
 class VectorEncryptError extends EncryptError {
     constructor(message = "Vector encryption error") {
-        super(`VectorEncryptError: ${message}`);
+        super(message); 
         this.name = "VectorEncryptError";
+        this.message = `VectorEncryptError: ${message.replace(/^VectorEncryptError: /, '')}`;
     }
 }
 
 // Errors specific to vector decryption
 class VectorDecryptError extends DecryptError {
     constructor(message = "Vector decryption error") {
-        super(`VectorDecryptError: ${message}`);
+        super(message); 
         this.name = "VectorDecryptError";
+        this.message = `VectorDecryptError: ${message.replace(/^VectorDecryptError: /, '')}`;
     }
 }
+
 
 // Error due to numerical overflow during encryption
 class OverflowError extends EncryptError {
     constructor(message = "Embedding or approximation factor too large") {
-        super(`OverflowError: ${message}`);
+        super(message); 
         this.name = "OverflowError";
+        this.message = `OverflowError: ${message.replace(/^OverflowError: /, '')}`;
     }
 }
 

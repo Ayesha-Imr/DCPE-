@@ -4,10 +4,10 @@ export default {
   collectCoverage: true,
   coverageDirectory: "coverage",
   moduleFileExtensions: ["js", "mjs"],
-  rootDir: "./dcpe",
+  rootDir: "./",
   transform: {
     "^.+\\.m?js$": "babel-jest", 
   },
   transformIgnorePatterns: [], 
-  testMatch: ["<rootDir>/**/*.test.mjs"], 
+  testMatch: ["**/dcpe/**/*.test.mjs"], 
 };

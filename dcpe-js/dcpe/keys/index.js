@@ -123,7 +123,7 @@ class VectorEncryptionKey {
         return this.unsafeBytesToKey(hashResultBytes);
     }
 
-    /**
+   /**
      * Constructs a VectorEncryptionKey from raw bytes.
      * @param {Buffer} keyBytes - The raw bytes.
      * @returns {VectorEncryptionKey}
@@ -137,7 +137,12 @@ class VectorEncryptionKey {
         const scalingFactorBytes = keyBytes.subarray(0, 3);
         const keyMaterialBytes = keyBytes.subarray(3, 35);
 
-        const scalingFactorU32 = parseInt(scalingFactorBytes.toString('hex'), 16);
+        // Add leading zero byte to match Python's behavior
+        const paddedBytes = Buffer.concat([Buffer.from([0]), scalingFactorBytes]);
+        
+        // Use readUInt32BE instead of parseInt for consistent binary representation
+        const scalingFactorU32 = paddedBytes.readUInt32BE(0);
+        
         const scalingFactor = new ScalingFactor(scalingFactorU32);
         const encryptionKey = new EncryptionKey(keyMaterialBytes);
 

@@ -3,6 +3,7 @@ import { create, all } from 'mathjs';
 import { InvalidKeyError, DecryptError } from '../exceptions/index.js';
 import { VectorEncryptionKey, ScalingFactor, EncryptionKey } from '../keys/index.js';
 
+
 const math = create(all);
 
 // Constants
@@ -41,23 +42,31 @@ class AuthHash {
  * @returns {Array<number>} - The sampled vector.
  */
 function sampleNormalVector(dimensionality) {
-    // Using Box-Muller transform to generate normally distributed random values
     return Array.from({ length: dimensionality }, () => {
-        // Box-Muller transform
-        const u1 = Math.random();
-        const u2 = Math.random();
-        const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
-        return z0; // Mean 0, standard deviation 1
+      // Use crypto instead of Math.random()
+      const u1Bytes = crypto.randomBytes(4);
+      const u2Bytes = crypto.randomBytes(4);
+      const u1 = u1Bytes.readUInt32LE(0) / 0x100000000;
+      const u2 = u2Bytes.readUInt32LE(0) / 0x100000000;
+      const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+      return z0;
     });
-}
+  }
+
 
 /**
- * Samples a uniform random point between 0 and 1.
- * @returns {number} - The sampled point.
+ * Generates a random uniform point in the range [0, 1).
+ * 
+ * This function uses cryptographic randomness to ensure high-quality random values.
+ * It generates 4 random bytes, interprets them as a 32-bit unsigned integer, 
+ * and then normalizes the value to a floating-point number in the range [0, 1).
+ * 
+ * @returns {number} A random floating-point number in the range [0, 1).
  */
 function sampleUniformPoint() {
-    return Math.random();
-}
+    const bytes = crypto.randomBytes(4);
+    return bytes.readUInt32LE(0) / 0x100000000;
+  }
 
 /**
  * Calculates a uniform point within an n-dimensional ball.
@@ -111,24 +120,24 @@ function generateNoiseVector(key, iv, approximationFactor, dimensionality) {
     return normalizeVector(normalVector, scaledPoint);
 }
 
+
 /**
- * Creates a deterministic random number generator based on a key.
- * @param {EncryptionKey} key - The encryption key.
- * @returns {Function} - A random number generator function.
+ * Creates a random number generator (RNG) function based on a given cryptographic key.
+ * The RNG function generates pseudo-random numbers in the range [0, 1) using HMAC with SHA-256.
+ *
+ * @param {Object} key - The cryptographic key used to seed the RNG. It must have a `getBytes` method
+ *                       that returns the key as a byte array.
+ * @returns {Function} A function that generates a pseudo-random number between 0 (inclusive) and 1 (exclusive)
+ *                     each time it is called.
  */
 function createRngFromKey(key) {
-    const seed = key.getBytes().toString("hex");
-    let h = 1779033703 ^ seed.length;
-    for (let i = 0; i < seed.length; i++) {
-        h = Math.imul(h ^ seed.charCodeAt(i), 3432918353);
-        h = (h << 13) | (h >>> 19);
-    }
-    return function () {
-        h = Math.imul(h ^ (h >>> 16), 2246822507);
-        h = Math.imul(h ^ (h >>> 13), 3266489909);
-        return ((h ^= h >>> 16) >>> 0) / 4294967296;
-    };
-}
+    return function() {
+      const hmac = crypto.createHmac('sha256', key.getBytes());
+      hmac.update(Buffer.from([this.counter++ & 0xFF]));
+      const bytes = hmac.digest();
+      return bytes.readUInt32LE(0) / 0x100000000;
+    }.bind({ counter: 0 });
+  }
 
 /**
  * Shuffles an array deterministically based on a key.
@@ -275,5 +284,7 @@ export {
     computeAuthHash,
     generateNoiseVector,
     shuffle,
-    unshuffle
+    unshuffle,
+    sampleNormalVector,
+    sampleUniformPoint
 };
