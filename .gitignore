@@ -3,3 +3,5 @@ venv/
 .env
 encryption_key.json
 .github/
+node_modules/
+dcpe-js/node_modules/
