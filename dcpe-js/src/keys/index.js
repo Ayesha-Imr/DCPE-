@@ -179,9 +179,22 @@ function generateRandomKey() {
     return new EncryptionKey(crypto.randomBytes(32));
 }
 
+/**
+ * Generates encryption keys for use with DCPE
+ * @param {Object} options - Options for key generation
+ * @param {number} [options.approximationFactor=1.0] - Approximation factor for vector encryption
+ * @returns {Promise<Buffer>} - Generated encryption key material
+ */
+async function generateEncryptionKeys(options = {}) {
+    const { approximationFactor = 1.0 } = options;
+    // Generate a random key for encryption
+    return crypto.randomBytes(32);
+}
+
 export {
     EncryptionKey,
     ScalingFactor,
     VectorEncryptionKey,
-    generateRandomKey
+    generateRandomKey,
+    generateEncryptionKeys
 };

@@ -327,3 +327,83 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
 }
 
 export { RagEncryptionClient };
+
+// After the RagEncryptionClient class and its export:
+
+/**
+ * Encryption client instance for utility functions
+ * @type {RagEncryptionClient}
+ * @private
+ */
+let _clientInstance = null;
+
+/**
+ * Get or initialize the client instance
+ * @param {Buffer} keys - Encryption keys
+ * @returns {RagEncryptionClient}
+ * @private
+ */
+function _getClientInstance(keys) {
+    if (!_clientInstance) {
+        _clientInstance = new RagEncryptionClient(keys);
+    }
+    return _clientInstance;
+}
+
+/**
+ * Encrypts a text string using AES-GCM
+ * @param {string} text - Text to encrypt
+ * @param {Buffer} keys - Encryption keys
+ * @param {Object} options - Encryption options
+ * @returns {Object} - Encrypted text, IV, and authentication tag
+ */
+function encryptText(text, keys, options = {}) {
+    const client = _getClientInstance(keys);
+    return client.encryptText(text);
+}
+
+/**
+ * Decrypts an AES-GCM encrypted text
+ * @param {Object} encryptedText - Encrypted text object with ciphertext, iv, and tag
+ * @param {Buffer} keys - Encryption keys
+ * @param {Object} options - Decryption options
+ * @returns {string} - Decrypted text
+ */
+function decryptText(encryptedText, keys, options = {}) {
+    const client = _getClientInstance(keys);
+    return client.decryptText(encryptedText.ciphertext, encryptedText.iv, encryptedText.tag);
+}
+
+/**
+ * Encrypts text deterministically using AES-GCM
+ * @param {string} value - Value to encrypt
+ * @param {Buffer} keys - Encryption keys
+ * @param {Object} options - Encryption options
+ * @returns {Buffer} - Encrypted value
+ */
+function encryptDeterministicText(value, keys, options = {}) {
+    const client = _getClientInstance(keys);
+    return client.encryptDeterministicText(value);
+}
+
+/**
+ * Decrypts deterministically encrypted text
+ * @param {Buffer} encryptedValue - Encrypted value
+ * @param {Buffer} keys - Encryption keys
+ * @param {Object} options - Decryption options
+ * @returns {string} - Decrypted value
+ */
+function decryptDeterministicText(encryptedValue, keys, options = {}) {
+    const client = _getClientInstance(keys);
+    return client.decryptDeterministicText(encryptedValue);
+}
+
+// Export additional functions
+export {
+    encryptText,
+    decryptText,
+    encryptDeterministicText,
+    decryptDeterministicText,
+    encryptDeterministicText as encryptMetadataField,
+    decryptDeterministicText as decryptMetadataField
+};

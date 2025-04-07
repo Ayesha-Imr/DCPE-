@@ -2,7 +2,7 @@ import { MilvusClient } from '@zilliz/milvus2-sdk-node';
 import dotenv from 'dotenv';
 import cohere from 'cohere-ai';
 import puppeteer from 'puppeteer';
-import { RagEncryptionClient } from './rag_encryption/index.js';
+import { RagEncryptionClient } from '../rag_encryption/index.js';
 
 // Load environment variables
 dotenv.config();

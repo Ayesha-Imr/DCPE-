@@ -66,4 +66,70 @@ class ClientKeyProvider extends KeyProvider {
     }
 }
 
-export { KeyProvider, ClientKeyProvider };
+/**
+ * LocalKeyProvider for managing keys locally
+ * This provider stores keys in memory only for the lifetime of the instance
+ */
+class LocalKeyProvider extends KeyProvider {
+    /**
+     * @param {Object} config - Configuration options
+     */
+    constructor(config = {}) {
+        super();
+        this.keys = {};
+        this.currentKey = null;
+    }
+
+    /**
+     * Retrieves a key from the local store
+     * @param {string} [keyId] - The identifier for the key to retrieve
+     * @returns {Promise<Buffer>} - The raw key material as a Buffer
+     * @throws {Error} - If the key is not found
+     */
+    async getKey(keyId) {
+        const key = this.keys[keyId || "default"] || this.currentKey;
+        if (!key) {
+            throw new Error(`Key not found: ${keyId || "default"}`);
+        }
+        return key;
+    }
+
+    /**
+     * Stores a key in the local store
+     * @param {Buffer} keyMaterial - The raw key to store
+     * @param {string} [keyId] - Optional identifier for the key
+     * @returns {Promise<string>} - The identifier assigned to the stored key
+     */
+    async storeKey(keyMaterial, keyId) {
+        const actualKeyId = keyId || "default";
+        this.keys[actualKeyId] = keyMaterial;
+        return actualKeyId;
+    }
+
+    /**
+     * Sets the encryption keys
+     * @param {Object|Buffer} encryptionKeys - Encryption keys to set
+     */
+    setKeys(encryptionKeys) {
+        if (Buffer.isBuffer(encryptionKeys)) {
+            this.currentKey = encryptionKeys;
+        } else if (encryptionKeys && typeof encryptionKeys === 'object') {
+            this.currentKey = encryptionKeys.key || encryptionKeys;
+        } else {
+            throw new TypeError("Invalid encryption keys format");
+        }
+    }
+
+    /**
+     * Gets the current encryption keys
+     * @returns {Buffer} - The raw key material
+     */
+    getKeys() {
+        if (!this.currentKey) {
+            throw new Error("No encryption keys have been set");
+        }
+        return this.currentKey;
+    }
+}
+
+export { KeyProvider, ClientKeyProvider, LocalKeyProvider };
