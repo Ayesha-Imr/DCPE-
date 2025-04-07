@@ -156,6 +156,76 @@ async function vectorSearch(encryptedQueryEmbedding) {
   return searchResults.results; // Return raw search results
 }
 
+async function filteredVectorSearch(encryptedQueryEmbedding, filterOptions = {}) {
+  try {
+    // Build filter expression based on provided options
+    let filterExpr = '';
+    
+    // Filter by source URL (deterministic encryption)
+    if (filterOptions.sourceUrl) {
+      // Encrypt the URL using deterministic encryption to match stored values
+      if (!encryptionClient) {
+        await initializeEncryptionClient();
+      }
+      
+      // Convert URL to the same format as stored in the database 
+      const encryptedUrl = encryptionClient
+        .encryptDeterministicText(filterOptions.sourceUrl)
+        .toString('base64');
+        
+      filterExpr = `source_url == "${encryptedUrl}"`;
+    }
+    
+    // Filter by date range
+    if (filterOptions.startDate && filterOptions.endDate) {
+      const dateFilter = `(upload_date >= "${filterOptions.startDate}" and upload_date <= "${filterOptions.endDate}")`;
+      filterExpr = filterExpr ? `${filterExpr} and ${dateFilter}` : dateFilter;
+    } else if (filterOptions.startDate) {
+      const dateFilter = `upload_date >= "${filterOptions.startDate}"`;
+      filterExpr = filterExpr ? `${filterExpr} and ${dateFilter}` : dateFilter;
+    } else if (filterOptions.endDate) {
+      const dateFilter = `upload_date <= "${filterOptions.endDate}"`;
+      filterExpr = filterExpr ? `${filterExpr} and ${dateFilter}` : dateFilter;
+    }
+    
+    // Additional custom filter expression
+    if (filterOptions.customFilter) {
+      filterExpr = filterExpr 
+        ? `${filterExpr} and (${filterOptions.customFilter})` 
+        : filterOptions.customFilter;
+    }
+    
+    // Prepare search options
+    const searchOptions = {
+      collection_name: collectionName,
+      vectors: [encryptedQueryEmbedding],
+      search_params: {
+        anns_field: 'vector',
+        topk: filterOptions.limit || 5,
+        metric_type: 'COSINE',
+        params: JSON.stringify({ nprobe: filterOptions.nprobe || 10 }),
+      },
+      output_fields: ['chunk_text', 'source_url', 'upload_date'],
+    };
+    
+    // Add filter if we have one
+    if (filterExpr) {
+      searchOptions.filter = filterExpr;
+      console.log(`Applying filter: ${filterExpr}`);
+    }
+
+    const searchResults = await milvusClient.search(searchOptions);
+    
+    // Debug the full response structure with applied filters
+    console.log("Filtered search response:", JSON.stringify(searchResults, null, 2));
+
+    return searchResults.results; 
+  } catch (error) {
+    console.error("Error in filtered vector search:", error);
+    throw error;
+  }
+}
+
 // Function to process data and prepare it for ingestion with encryption
 async function processData(data, sourceUrl) {
   // Make sure encryption client is initialized
@@ -211,7 +281,7 @@ async function processAndIngestData(url) {
 }
 
 // Function to perform vector search and format results with decryption
-async function searchQuery(query) {
+async function searchQuery(query, filterOptions = {}) {
   // Make sure encryption client is initialized
   if (!encryptionClient) {
     await initializeEncryptionClient();
@@ -220,12 +290,14 @@ async function searchQuery(query) {
   // Get and encrypt query embedding
   const { encryptedVector, vectorMetadata } = await getQueryEmbedding(query);
 
-  // Perform vector search
-  const searchResults = await vectorSearch(encryptedVector);
+  // Perform vector search with or without filters
+  const searchResults = filterOptions && Object.keys(filterOptions).length > 0
+    ? await filteredVectorSearch(encryptedVector, filterOptions)
+    : await vectorSearch(encryptedVector);
   
   // Add debugging to check search results structure
   console.log("Search results structure:", JSON.stringify(searchResults[0], null, 2));
-  
+    
   // Decrypt search results with proper error handling
   const decryptedResults = searchResults.map(result => {
     try {
@@ -378,6 +450,7 @@ export {
   chunkText, 
   getQueryEmbedding, 
   vectorSearch, 
+  filteredVectorSearch,
   processData,
   // createEncryptedCollection, 
   initializeEncryptionClient 
