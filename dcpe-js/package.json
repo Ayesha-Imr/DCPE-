@@ -35,13 +35,17 @@
     "dcpe",
     "zero-trust",
     "client-side-encryption",
-    "rag"
+    "rag",
+    "embeddings",
+    "security",
+    "llm",
+    "privacy"
   ],
-  "author": "Your Name",
+  "author": "Ayesha Imran",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/dcpe-js.git"
+    "url": "https://github.com/Ayesha-Imr/DCPE-/tree/DCPE-js-package/dcpe-js"
   },
   "devDependencies": {
     "@babel/core": "^7.21.4",
@@ -51,6 +55,7 @@
     "@rollup/plugin-json": "^6.0.0",
     "@rollup/plugin-node-resolve": "^15.0.2",
     "@rollup/plugin-terser": "^0.4.1",
+    "@types/node": "^22.14.0",
     "eslint": "^8.38.0",
     "jest": "^29.5.0",
     "jsdoc": "^4.0.2",
