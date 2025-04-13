@@ -343,8 +343,19 @@ function generateRandomKey() {
  * @returns {Promise<Buffer>} - Generated encryption key material
  */
 async function generateEncryptionKeys() {
-  // Generate a random key for encryption
-  return crypto.randomBytes(32);
+  let options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+  const {
+    approximationFactor = 1.0
+  } = options;
+
+  // Generate a random encryption key
+  const keyMaterial = crypto.randomBytes(32);
+
+  // Create a ScalingFactor instance
+  const scalingFactor = new ScalingFactor(approximationFactor);
+
+  // Create and return a VectorEncryptionKey
+  return new VectorEncryptionKey(scalingFactor, new EncryptionKey(keyMaterial));
 }
 
 var index$4 = /*#__PURE__*/Object.freeze({
@@ -403,11 +414,11 @@ function sampleNormalVector(dimensionality) {
 
 /**
  * Generates a random uniform point in the range [0, 1).
- * 
+ *
  * This function uses cryptographic randomness to ensure high-quality random values.
- * It generates 4 random bytes, interprets them as a 32-bit unsigned integer, 
+ * It generates 4 random bytes, interprets them as a 32-bit unsigned integer,
  * and then normalizes the value to a floating-point number in the range [0, 1).
- * 
+ *
  * @returns {number} A random floating-point number in the range [0, 1).
  */
 function sampleUniformPoint() {
@@ -587,6 +598,9 @@ function computeAuthHash(key, approximationFactor, iv, encryptedVector) {
  * @returns {Object} - The encryption result containing ciphertext, IV, and auth hash.
  */
 function encryptVector(key, approximationFactor, vector) {
+  if (!key || !key.scalingFactor) {
+    throw new InvalidKeyError("Scaling factor is not initialized in the encryption key");
+  }
   if (key.scalingFactor.getFactor() === 0) {
     throw new InvalidKeyError("Scaling factor cannot be zero");
   }
@@ -603,7 +617,6 @@ function encryptVector(key, approximationFactor, vector) {
     authHash
   };
 }
-
 /**
  * Decrypts an encrypted vector embedding.
  * @param {VectorEncryptionKey} key - The encryption key.
@@ -938,8 +951,20 @@ class LocalKeyProvider extends KeyProvider {
   setKeys(encryptionKeys) {
     if (Buffer.isBuffer(encryptionKeys)) {
       this.currentKey = encryptionKeys;
+    } else if (encryptionKeys && encryptionKeys instanceof VectorEncryptionKey) {
+      // Preserve VectorEncryptionKey instance directly
+      this.currentKey = encryptionKeys;
     } else if (encryptionKeys && typeof encryptionKeys === 'object') {
-      this.currentKey = encryptionKeys.key || encryptionKeys;
+      // Handle objects that might be serialized VectorEncryptionKey
+      if (encryptionKeys.scalingFactor && encryptionKeys.key) {
+        // Attempt to reconstruct a VectorEncryptionKey
+        const scalingFactor = new ScalingFactor(encryptionKeys.scalingFactor.factor || encryptionKeys.scalingFactor);
+        const key = new EncryptionKey(Buffer.isBuffer(encryptionKeys.key.keyBytes) ? encryptionKeys.key.keyBytes : Buffer.from(encryptionKeys.key.keyBytes || encryptionKeys.key));
+        this.currentKey = new VectorEncryptionKey(scalingFactor, key);
+      } else {
+        // Fallback to previous behavior
+        this.currentKey = encryptionKeys.key || encryptionKeys;
+      }
     } else {
       throw new TypeError("Invalid encryption keys format");
     }
@@ -1315,13 +1340,24 @@ let _clientInstance = null;
 
 /**
  * Get or initialize the client instance
- * @param {Buffer} keys - Encryption keys
+ * @param {Buffer|VectorEncryptionKey} keys - Encryption keys
  * @returns {RagEncryptionClient}
  * @private
  */
 function _getClientInstance(keys) {
   if (!_clientInstance) {
-    _clientInstance = new RagEncryptionClient(keys);
+    // Extract raw key material if keys is a VectorEncryptionKey
+    let keyMaterial;
+    if (keys && typeof keys === 'object' && keys.key && typeof keys.key.getBytes === 'function') {
+      // If it's a VectorEncryptionKey object, extract the underlying key bytes
+      keyMaterial = keys.key.getBytes();
+    } else if (Buffer.isBuffer(keys)) {
+      // If it's already a Buffer, use it directly
+      keyMaterial = keys;
+    } else {
+      throw new InvalidInputError('Invalid key format: expected Buffer or VectorEncryptionKey');
+    }
+    _clientInstance = new RagEncryptionClient(keyMaterial);
   }
   return _clientInstance;
 }
@@ -1450,12 +1486,37 @@ var configValidator = /*#__PURE__*/Object.freeze({
 
 /**
  * Base adapter interface for vector databases
- * This is an abstract class that should be extended to create specific database adapters
+ * This is an abstract class that should be extended to create specific database adapters.
+ * It provides a standard interface for interacting with different vector databases,
+ * allowing DCPE to work with any vector database that implements this interface.
+ * 
+ * @example
+ * ```javascript
+ * import { BaseAdapter } from 'dcpe-js';
+ * 
+ * class PineconeAdapter extends BaseAdapter {
+ *   constructor(config) {
+ *     super(config);
+ *     this.client = null;
+ *   }
+ * 
+ *   async connect() {
+ *     // Implement connection to Pinecone
+ *   }
+ *   
+ *   // Implement other required methods...
+ * }
+ * ```
  */
 class BaseAdapter {
   /**
    * Create a new adapter instance
    * @param {Object} config - Configuration options
+   * @param {string} [config.host] - Database host URL
+   * @param {string} [config.apiKey] - API key for authentication
+   * @param {string} [config.collectionName] - Collection/index name
+   * @param {number} [config.dimension] - Vector dimension
+   * @param {string} [config.metricType="cosine"] - Distance metric type (cosine, euclidean, dot)
    */
   constructor() {
     let config = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
@@ -1464,7 +1525,17 @@ class BaseAdapter {
 
   /**
    * Connect to the vector database
-   * @returns {Promise<void>}
+   * Implementations should establish a connection to the database
+   * and prepare any necessary resources (create collections, etc.)
+   * 
+   * @returns {Promise<boolean>} - True if connection was successful
+   * @throws {Error} - If connection fails
+   * 
+   * @example
+   * ```javascript
+   * const adapter = new CustomAdapter({ host: 'https://db.example.com', apiKey: 'key123' });
+   * await adapter.connect();
+   * ```
    */
   async connect() {
     throw new Error('Method not implemented: connect');
@@ -1472,7 +1543,15 @@ class BaseAdapter {
 
   /**
    * Disconnect from the vector database
+   * Implementations should clean up resources and close connections
+   * 
    * @returns {Promise<void>}
+   * @throws {Error} - If disconnection fails
+   * 
+   * @example
+   * ```javascript
+   * await adapter.disconnect();
+   * ```
    */
   async disconnect() {
     throw new Error('Method not implemented: disconnect');
@@ -1481,7 +1560,20 @@ class BaseAdapter {
   /**
    * Insert vectors into the database
    * @param {Array<Object>} vectors - Vectors to insert
-   * @returns {Promise<Array>} - Inserted IDs
+   * @param {string} [vectors[].id] - Optional unique identifier for the vector
+   * @param {Array<number>} vectors[].vector - The vector embedding to insert
+   * @param {Object} [vectors[].metadata] - Optional metadata associated with the vector
+   * @returns {Promise<Array<string>>} - IDs of the inserted vectors
+   * @throws {Error} - If insertion fails
+   * 
+   * @example
+   * ```javascript
+   * const vectors = [
+   *   { id: 'doc1', vector: [0.1, 0.2, 0.3], metadata: { text: 'encrypted text', category: 'encrypted category' }},
+   *   { id: 'doc2', vector: [0.4, 0.5, 0.6], metadata: { text: 'encrypted text', category: 'encrypted category' }}
+   * ];
+   * const ids = await adapter.insert(vectors);
+   * ```
    */
   async insert(vectors) {
     throw new Error('Method not implemented: insert');
@@ -1489,9 +1581,22 @@ class BaseAdapter {
 
   /**
    * Search for vectors in the database
-   * @param {Array<number>} queryVector - Query vector
+   * @param {Array<number>} queryVector - Query vector to search for
    * @param {Object} options - Search options
-   * @returns {Promise<Array<Object>>} - Search results
+   * @param {number} [options.limit=10] - Maximum number of results to return
+   * @param {number} [options.threshold=0.7] - Similarity threshold (database-specific implementation)
+   * @param {Object} [options.filter] - Filter conditions for metadata (database-specific implementation)
+   * @returns {Promise<Array<Object>>} - Search results with format [{ id, vector, metadata, score/distance }]
+   * @throws {Error} - If search fails
+   * 
+   * @example
+   * ```javascript
+   * const queryVector = [0.1, 0.2, 0.3];
+   * const results = await adapter.search(queryVector, { 
+   *   limit: 5, 
+   *   filter: { category: encryptedCategoryValue } 
+   * });
+   * ```
    */
   async search(queryVector) {
     throw new Error('Method not implemented: search');
@@ -1499,15 +1604,44 @@ class BaseAdapter {
 }
 
 /**
- * Main DCPE class providing a simple interface to the library's functionality
+ * Main DCPE class providing a simple interface to the library's functionality.
+ * This class serves as the primary entry point for the DCPE library and handles
+ * key management, vector encryption/decryption, text encryption/decryption, and
+ * metadata encryption/decryption.
+ *
+ * @example
+ * ```javascript
+ * // Create a DCPE instance with default configuration
+ * const dcpe = new DCPE();
+ *
+ * // Generate encryption keys
+ * const keys = await dcpe.generateKeys();
+ * dcpe.setKeys(keys);
+ *
+ * // Encrypt a vector
+ * const vector = [0.1, 0.2, 0.3, 0.4];
+ * const encryptedVector = dcpe.encryptVector(vector);
+ * ```
  */
 class DCPE {
   /**
    * Create a new DCPE instance
    * @param {Object} config - Configuration options
    * @param {string} [config.keyProvider='local'] - Key provider type ('local', 'vault', etc.)
-   * @param {Object} [config.keyProviderConfig={}] - Configuration for key provider
-   * @param {Object} [config.vectorConfig={}] - Configuration for vector operations
+   * @param {Object} [config.keyProviderConfig={}] - Configuration options for the key provider
+   * @param {Object} [config.vectorConfig={}] - Configuration options for vector operations
+   *  
+   * @example
+   * ```javascript
+   * // Create with default configuration (local key provider)
+   * const dcpeDefault = new DCPE();
+   *
+   * // Create with custom configuration
+   * const dcpeCustom = new DCPE({
+   *   keyProvider: 'local',
+   *   vectorConfig: { approximationFactor: 0.95 }
+   * });
+   * ```
    */
   constructor() {
     let config = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
@@ -1534,6 +1668,7 @@ class DCPE {
   /**
    * Initialize the key provider based on configuration
    * @private
+   * @throws {Error} If the specified key provider type is not supported
    */
   _initializeKeyProvider() {
     const {
@@ -1551,51 +1686,109 @@ class DCPE {
   }
 
   /**
-   * Generate encryption keys
+   * Generate encryption keys for use with the DCPE library
    * @param {Object} options - Options for key generation
-   * @returns {Promise<Object>} - Generated keys
+   * @param {number} [options.approximationFactor=1.0] - Approximation factor for vector encryption (1.0 = exact, lower values = faster but less accurate)
+   * @returns {Promise<Buffer>} - Generated encryption key material that can be set using setKeys()
+   *
+   * @example
+   * ```javascript
+   * const keys = await dcpe.generateKeys({ approximationFactor: 0.95 });
+   * dcpe.setKeys(keys);
+   * ```
    */
   async generateKeys() {
-    return await generateEncryptionKeys();
+    let options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+    return await generateEncryptionKeys(options);
   }
 
   /**
-   * Set encryption keys
-   * @param {Object} encryptionKeys - Encryption keys to set
+   * Set encryption keys for the DCPE instance
+   * @param {Buffer|Object} encryptionKeys - Encryption keys to set
+   * @throws {TypeError} If encryption keys are in an invalid format
+   *
+   * @example
+   * ```javascript
+   * // Generate and set keys
+   * const keys = await dcpe.generateKeys();
+   * dcpe.setKeys(keys);
+   *
+   * // Set existing keys
+   * const existingKeys = loadKeysFromSecureStorage();
+   * dcpe.setKeys(existingKeys);
+   * ```
    */
   setKeys(encryptionKeys) {
     this.keyProvider.setKeys(encryptionKeys);
   }
 
   /**
-   * Encrypt a vector using DCPE
+   * Encrypt a vector using DCPE (Distance Comparison Preserving Encryption)
+   * This preserves the relative distances between vectors so similarity search
+   * still works on the encrypted vectors.
+   *
    * @param {Array<number>} vector - Vector to encrypt
    * @param {Object} options - Encryption options
-   * @returns {Array<number>} - Encrypted vector
+   * @returns {Array<number>} - Encrypted vector that can be stored in a vector database
+   * @throws {Error} If encryption fails or keys are not set
+   *
+   * @example
+   * ```javascript
+   * const vector = [0.1, 0.2, 0.3, 0.4];
+   * const encryptedVector = dcpe.encryptVector(vector);
+   * // Store encryptedVector in your vector database
+   * ```
    */
   encryptVector(vector) {
     let options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    const keys = this.keyProvider.getKeys();
-    return encryptVector(vector, keys, options);
+    const key = this.keyProvider.getKeys();
+    const approximationFactor = options.approximationFactor || this.config.vectorConfig.approximationFactor || 1.0;
+
+    // Directly pass the needed parameters to the crypto function in the correct order
+    const result = encryptVector(key, approximationFactor, vector);
+    return result.ciphertext; // Return just the ciphertext for storage
   }
 
   /**
-   * Decrypt a vector using DCPE
+   * Decrypt a vector that was encrypted with DCPE
    * @param {Array<number>} encryptedVector - Encrypted vector
    * @param {Object} options - Decryption options
-   * @returns {Array<number>} - Decrypted vector
+   * @returns {Array<number>} - Original, decrypted vector
+   * @throws {Error} If decryption fails or keys are not set
+   *
+   * @example
+   * ```javascript
+   * const encryptedVector = getVectorFromDatabase();
+   * const decryptedVector = dcpe.decryptVector(encryptedVector);
+   * ```
    */
-  decryptVector(encryptedVector) {
-    let options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    const keys = this.keyProvider.getKeys();
-    return decryptVector(encryptedVector, keys, options);
+  decryptVector(encryptedVector, metadata) {
+    let options = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
+    const key = this.keyProvider.getKeys();
+    const approximationFactor = options.approximationFactor || this.config.vectorConfig.approximationFactor || 1.0;
+
+    // Create the encryptedResult object expected by the crypto function
+    const encryptedResult = {
+      ciphertext: encryptedVector,
+      iv: metadata.iv,
+      authHash: metadata.authHash
+    };
+    return decryptVector(key, approximationFactor, encryptedResult);
   }
 
   /**
-   * Encrypt text using AES-GCM
+   * Encrypt text using AES-GCM encryption
    * @param {string} text - Text to encrypt
    * @param {Object} options - Encryption options
-   * @returns {string} - Encrypted text
+   * @returns {Object} - Encrypted text object containing ciphertext, iv, and tag
+   * @throws {Error} If encryption fails or keys are not set
+   *
+   * @example
+   * ```javascript
+   * const text = "This is sensitive information";
+   * const encryptedText = dcpe.encryptText(text);
+   * // encryptedText contains { ciphertext, iv, tag } that can be stored
+   * ```
    */
   encryptText(text) {
     const keys = this.keyProvider.getKeys();
@@ -1603,10 +1796,17 @@ class DCPE {
   }
 
   /**
-   * Decrypt text using AES-GCM
-   * @param {string} encryptedText - Encrypted text
+   * Decrypt text that was encrypted with AES-GCM
+   * @param {Object} encryptedText - Encrypted text object containing ciphertext, iv, and tag
    * @param {Object} options - Decryption options
-   * @returns {string} - Decrypted text
+   * @returns {string} - Original, decrypted text
+   * @throws {Error} If decryption fails or keys are not set
+   *
+   * @example
+   * ```javascript
+   * const encryptedText = getFromDatabase();
+   * const plaintext = dcpe.decryptText(encryptedText);
+   * ```
    */
   decryptText(encryptedText) {
     const keys = this.keyProvider.getKeys();
@@ -1615,9 +1815,19 @@ class DCPE {
 
   /**
    * Encrypt metadata field using deterministic encryption
+   * This allows for exact-match filtering on encrypted fields
+   *
    * @param {string|number} value - Value to encrypt
    * @param {Object} options - Encryption options
-   * @returns {string} - Encrypted value
+   * @returns {Buffer} - Deterministically encrypted value that can be used for filtering
+   * @throws {Error} If encryption fails or keys are not set
+   *
+   * @example
+   * ```javascript
+   * const category = "finance";
+   * const encryptedCategory = dcpe.encryptMetadata(category);
+   * // Store with vector: { vector: encryptedVector, metadata: { category: encryptedCategory } }
+   * ```
    */
   encryptMetadata(value) {
     const keys = this.keyProvider.getKeys();
@@ -1625,10 +1835,17 @@ class DCPE {
   }
 
   /**
-   * Decrypt metadata field
-   * @param {string} encryptedValue - Encrypted value
+   * Decrypt metadata field that was encrypted with deterministic encryption
+   * @param {Buffer} encryptedValue - Encrypted value
    * @param {Object} options - Decryption options
-   * @returns {string|number} - Decrypted value
+   * @returns {string|number} - Original, decrypted value
+   * @throws {Error} If decryption fails or keys are not set
+   *
+   * @example
+   * ```javascript
+   * const encryptedCategory = result.metadata.category;
+   * const category = dcpe.decryptMetadata(encryptedCategory);
+   * ```
    */
   decryptMetadata(encryptedValue) {
     const keys = this.keyProvider.getKeys();

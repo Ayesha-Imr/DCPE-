@@ -4,10 +4,14 @@ import { InvalidKeyError, DecryptError } from '../exceptions/index.js';
 import { VectorEncryptionKey, ScalingFactor, EncryptionKey } from '../keys/index.js';
 
 
+
+
 const math = create(all);
+
 
 // Constants
 const SHUFFLE_KEY = "One Ring to rule them all, One Ring to find them, One Ring to bring them all, and in the darkness bind them";
+
 
 /**
  * Represents an authentication hash.
@@ -23,18 +27,22 @@ class AuthHash {
         this.hashBytes = hashBytes;
     }
 
+
     getBytes() {
         return this.hashBytes;
     }
+
 
     equals(other) {
         return other instanceof AuthHash && this.hashBytes.equals(other.hashBytes);
     }
 
+
     toString() {
         return `AuthHash(${this.hashBytes.toString('hex')})`;
     }
 }
+
 
 /**
  * Generates a random vector sampled from a multivariate normal distribution.
@@ -54,19 +62,22 @@ function sampleNormalVector(dimensionality) {
   }
 
 
+
+
 /**
  * Generates a random uniform point in the range [0, 1).
- * 
+ *
  * This function uses cryptographic randomness to ensure high-quality random values.
- * It generates 4 random bytes, interprets them as a 32-bit unsigned integer, 
+ * It generates 4 random bytes, interprets them as a 32-bit unsigned integer,
  * and then normalizes the value to a floating-point number in the range [0, 1).
- * 
+ *
  * @returns {number} A random floating-point number in the range [0, 1).
  */
 function sampleUniformPoint() {
     const bytes = crypto.randomBytes(4);
     return bytes.readUInt32LE(0) / 0x100000000;
   }
+
 
 /**
  * Calculates a uniform point within an n-dimensional ball.
@@ -81,6 +92,7 @@ function calculateUniformPointInBall(scalingFactor, approximationFactor, uniform
     return radius * Math.pow(uniformPoint, 1 / dimensionality);
 }
 
+
 /**
  * Normalizes a sampled vector.
  * @param {Array<number>} vector - The sampled vector.
@@ -91,6 +103,7 @@ function normalizeVector(vector, scale) {
     const norm = math.norm(vector);
     return vector.map((val) => (val * scale) / norm);
 }
+
 
 /**
  * Generates a normalized noise vector for encryption.
@@ -113,12 +126,14 @@ function generateNoiseVector(key, iv, approximationFactor, dimensionality) {
     if (!Number.isInteger(dimensionality) || dimensionality <= 0) {
         throw new Error("Dimensionality must be a positive integer");
     }
-    
+   
     const normalVector = sampleNormalVector(dimensionality);
     const uniformPoint = sampleUniformPoint();
     const scaledPoint = calculateUniformPointInBall(key.scalingFactor, approximationFactor, uniformPoint, dimensionality);
     return normalizeVector(normalVector, scaledPoint);
 }
+
+
 
 
 /**
@@ -139,6 +154,7 @@ function createRngFromKey(key) {
     }.bind({ counter: 0 });
   }
 
+
 /**
  * Shuffles an array deterministically based on a key.
  * @param {EncryptionKey} key - The encryption key used for deterministic shuffling.
@@ -150,8 +166,10 @@ function shuffle(key, inputArray) {
         throw new Error("Invalid input to shuffle function");
     }
 
+
     // Create a deterministic random number generator based on the key
     const rng = createRngFromKey(key);
+
 
     // Create an array of indices and shuffle them
     const indices = inputArray.map((_, index) => index);
@@ -160,9 +178,11 @@ function shuffle(key, inputArray) {
         [indices[i], indices[j]] = [indices[j], indices[i]];
     }
 
+
     // Use the shuffled indices to reorder the input array
     return indices.map((index) => inputArray[index]);
 }
+
 
 /**
  * Unshuffles an array that was shuffled deterministically based on a key.
@@ -191,8 +211,10 @@ function unshuffle(key, shuffledArray) {
         throw new Error("Invalid input to unshuffle function");
     }
 
+
     // Create a deterministic random number generator based on the key
     const rng = createRngFromKey(key);
+
 
     // First recreate the exact same permutation that was used in the shuffle function
     const indices = Array.from({ length: shuffledArray.length }, (_, i) => i);
@@ -201,15 +223,18 @@ function unshuffle(key, shuffledArray) {
         [indices[i], indices[j]] = [indices[j], indices[i]];
     }
 
+
     // Create a mapping from shuffled position to original position
     const reverseMap = new Array(indices.length);
     for (let i = 0; i < indices.length; i++) {
         reverseMap[indices[i]] = i;
     }
 
+
     // Use the mapping to restore the original order
     return shuffledArray.map((_, i) => shuffledArray[reverseMap[i]]);
 }
+
 
 /**
  * Computes an authentication hash for a vector embedding.
@@ -230,6 +255,7 @@ function computeAuthHash(key, approximationFactor, iv, encryptedVector) {
     return new AuthHash(hmac.digest());
 }
 
+
 /**
  * Encrypts a vector embedding.
  * @param {VectorEncryptionKey} key - The encryption key.
@@ -238,23 +264,31 @@ function computeAuthHash(key, approximationFactor, iv, encryptedVector) {
  * @returns {Object} - The encryption result containing ciphertext, IV, and auth hash.
  */
 function encryptVector(key, approximationFactor, vector) {
+    if (!key || !key.scalingFactor) {
+        throw new InvalidKeyError("Scaling factor is not initialized in the encryption key");
+    }
+
+
     if (key.scalingFactor.getFactor() === 0) {
         throw new InvalidKeyError("Scaling factor cannot be zero");
     }
+
 
     const iv = crypto.randomBytes(12);
     const noiseVector = generateNoiseVector(key, iv, approximationFactor, vector.length);
     const ciphertext = vector.map((val, i) => key.scalingFactor.getFactor() * val + noiseVector[i]);
 
+
     if (!ciphertext.every((val) => Number.isFinite(val))) {
         throw new Error("Overflow error: Embedding or approximation factor too large.");
     }
 
+
     const authHash = computeAuthHash(key, approximationFactor, iv, ciphertext);
+
 
     return { ciphertext, iv, authHash };
 }
-
 /**
  * Decrypts an encrypted vector embedding.
  * @param {VectorEncryptionKey} key - The encryption key.
@@ -267,15 +301,19 @@ function decryptVector(key, approximationFactor, encryptedResult) {
         throw new InvalidKeyError("Scaling factor cannot be zero");
     }
 
+
     const { ciphertext, iv, authHash } = encryptedResult;
+
 
     if (!computeAuthHash(key, approximationFactor, iv, ciphertext).equals(authHash)) {
         throw new DecryptError("Authentication hash mismatch");
     }
 
+
     const noiseVector = generateNoiseVector(key, iv, approximationFactor, ciphertext.length);
     return ciphertext.map((val, i) => (val - noiseVector[i]) / key.scalingFactor.getFactor());
 }
+
 
 export {
     AuthHash,

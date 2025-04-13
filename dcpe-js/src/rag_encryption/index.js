@@ -5,6 +5,7 @@ import { InvalidInputError, DecryptError } from '../exceptions/index.js';
 import crypto from 'crypto';
 import { hkdf } from '../crypto/hkdf.js';
 
+
 /**
  * RagEncryptionClient: High-level interface for encryption and decryption.
  */
@@ -22,18 +23,19 @@ constructor(encryptionKey = null, approximationFactor = 1.0, keyProvider = null,
     if (_skipValidation) {
         return;
     }
-    
+   
     // For direct key initialization only - use static create() for key provider
     if (keyProvider || keyId) {
         throw new InvalidInputError("For async key provider initialization, use the static create() method");
     }
-    
+   
     if (!encryptionKey) {
         throw new InvalidInputError("Encryption key must be provided when using constructor directly");
     }
-    
+   
     this._initializeWithKey(encryptionKey, approximationFactor);
 }
+
 
 /**
  * Creates an instance of RagEncryptionClient.
@@ -41,7 +43,7 @@ constructor(encryptionKey = null, approximationFactor = 1.0, keyProvider = null,
 static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider = null, keyId = null) {
     // Create a new instance with validation skipped
     const client = new RagEncryptionClient(null, 1.0, null, null, true);
-    
+   
     if (keyProvider && keyId) {
         // Rest remains the same...
             // Check for the getKey method instead of instanceof
@@ -57,6 +59,7 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
         return client;
     }
 
+
     /**
      * Initialize client with direct key material
      * @private
@@ -69,6 +72,7 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
             throw new InvalidInputError("Approximation factor must be a number");
         }
 
+
         this.vectorEncryptionKey = new VectorEncryptionKey(
             new ScalingFactor(approximationFactor),
             new EncryptionKey(encryptionKey)
@@ -79,6 +83,7 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
         this.keyId = "local-key";
         this.keyProvider = null;
     }
+
 
     /**
      * Initialize client with key provider
@@ -95,6 +100,7 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
         }
     }
 
+
     // Update rotateKey to support key provider
     /**
      * Rotate to a new encryption key.
@@ -106,7 +112,7 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
         this._oldVectorEncryptionKey = this.vectorEncryptionKey;
         this._oldTextEncryptionKey = this.textEncryptionKey;
         this._oldDeterministicEncryptionKey = this.deterministicEncryptionKey;
-        
+       
         // Get new key material
         let newKey;
         if (this.keyProvider && newKeyId) {
@@ -126,7 +132,7 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
         } else {
             throw new InvalidInputError("Either newKeyMaterial or newKeyId must be provided");
         }
-        
+       
         // Update current keys with new material
         this.vectorEncryptionKey = new VectorEncryptionKey(
             new ScalingFactor(this.approximationFactor),
@@ -135,6 +141,8 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
         this.textEncryptionKey = new EncryptionKey(newKey);
         this.deterministicEncryptionKey = new EncryptionKey(newKey);
     }
+
+
 
 
     /**
@@ -147,8 +155,10 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
             throw new InvalidInputError("Plaintext vector must be an array of numbers");
         }
 
+
         // Shuffle the plaintext vector
         const shuffledVector = shuffle(this.textEncryptionKey, plaintextVector);
+
 
         // Encrypt the shuffled vector
         const encryptResult = encryptVector(
@@ -156,6 +166,7 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
             this.approximationFactor,
             shuffledVector
         );
+
 
         // Generate metadata
         const keyIdHeader = new KeyIdHeader(
@@ -165,9 +176,11 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
         );
         const metadata = encodeVectorMetadata(keyIdHeader, encryptResult.iv, encryptResult.authHash);
 
+
         // Return tuple format like Python
         return [encryptResult.ciphertext, metadata];
     }
+
 
     /**
      * Decrypts an encrypted vector embedding.
@@ -183,13 +196,16 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
             throw new InvalidInputError("Metadata must be a Buffer");
         }
 
+
         /// Decode metadata
         const { keyIdHeader, remainingBytes } = decodeVersionPrefixedValue(pairedIclInfo);
         const iv = remainingBytes.subarray(0, 12);
         const authHashBytes = remainingBytes.subarray(12);
 
+
         // Convert the Buffer to an AuthHash object
         const authHash = new AuthHash(authHashBytes);
+
 
         // Decrypt the vector
         const shuffledVector = decryptVector(
@@ -202,9 +218,11 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
             }
         );
 
+
         // Unshuffle the vector
         return unshuffle(this.textEncryptionKey, shuffledVector);
     }
+
 
     /**
      * Encrypts a text string using AES-GCM.
@@ -215,17 +233,18 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
         if (typeof plaintext !== 'string') {
             throw new InvalidInputError("Plaintext must be a string.");
         }
-    
+   
         // Ensure the key is exactly 32 bytes
         const key = this.textEncryptionKey.getBytes().subarray(0, 32);
-        
+       
         const iv = crypto.randomBytes(12);
         const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
         const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
         const tag = cipher.getAuthTag();
-    
+   
         return { ciphertext, iv, tag };
     }
+
 
     /**
      * Decrypts an AES-GCM encrypted text.
@@ -238,16 +257,17 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
         if (!Buffer.isBuffer(ciphertext) || !Buffer.isBuffer(iv) || !Buffer.isBuffer(tag)) {
             throw new InvalidInputError("Ciphertext, IV, and tag must be Buffers.");
         }
-    
+   
         // Ensure the key is exactly 32 bytes
         const key = this.textEncryptionKey.getBytes().subarray(0, 32);
-        
+       
         const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
         decipher.setAuthTag(tag);
         const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    
+   
         return plaintext.toString('utf8');
     }
+
 
     /**
      * Encrypts text deterministically using AES-GCM, mirroring Python implementation
@@ -260,6 +280,7 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
             throw new InvalidInputError("Plaintext must be a string");
         }
 
+
         // 1. Derive key using HKDF similarly to Python implementation
         const salt = Buffer.from('DCPE-Deterministic');
         const info = Buffer.from('deterministic_encryption_key');
@@ -270,19 +291,23 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
             info
         );
 
+
         // 2. Create deterministic nonce using HMAC from plaintext
         const hmac = crypto.createHmac('sha256', derivedKey);
         hmac.update(Buffer.from(plaintext, 'utf8'));
         const deterministicNonce = hmac.digest().subarray(0, 12);
+
 
         // 3. Encrypt with AES-GCM using the derived key and deterministic nonce
         const cipher = crypto.createCipheriv('aes-256-gcm', derivedKey, deterministicNonce);
         const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
         const tag = cipher.getAuthTag();
 
+
         // 4. Match Python's output format: nonce + ciphertext + tag
         return Buffer.concat([deterministicNonce, ciphertext, tag]);
     }
+
 
     /**
      * Decrypts deterministically encrypted text, matching Python implementation.
@@ -294,14 +319,17 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
             throw new InvalidInputError("Encrypted data must be a Buffer");
         }
 
+
         if (encryptedData.length < 28) { // 12 (nonce) + 16 (min tag size)
             throw new InvalidInputError("Encrypted data too short");
         }
+
 
         // 1. Split components: nonce + ciphertext + tag
         const nonce = encryptedData.subarray(0, 12);
         const ciphertext = encryptedData.subarray(12, encryptedData.length - 16);
         const tag = encryptedData.subarray(encryptedData.length - 16);
+
 
         // 2. Derive the same key used for encryption
         const salt = Buffer.from('DCPE-Deterministic');
@@ -312,6 +340,7 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
             salt,
             info
         );
+
 
         // 3. Decrypt with AES-GCM
         try {
@@ -324,11 +353,15 @@ static async create(encryptionKey = null, approximationFactor = 1.0, keyProvider
         }
     }
 
+
 }
+
 
 export { RagEncryptionClient };
 
+
 // After the RagEncryptionClient class and its export:
+
 
 /**
  * Encryption client instance for utility functions
@@ -337,18 +370,32 @@ export { RagEncryptionClient };
  */
 let _clientInstance = null;
 
+
 /**
  * Get or initialize the client instance
- * @param {Buffer} keys - Encryption keys
+ * @param {Buffer|VectorEncryptionKey} keys - Encryption keys
  * @returns {RagEncryptionClient}
  * @private
  */
 function _getClientInstance(keys) {
     if (!_clientInstance) {
-        _clientInstance = new RagEncryptionClient(keys);
+        // Extract raw key material if keys is a VectorEncryptionKey
+        let keyMaterial;
+        if (keys && typeof keys === 'object' && keys.key && typeof keys.key.getBytes === 'function') {
+            // If it's a VectorEncryptionKey object, extract the underlying key bytes
+            keyMaterial = keys.key.getBytes();
+        } else if (Buffer.isBuffer(keys)) {
+            // If it's already a Buffer, use it directly
+            keyMaterial = keys;
+        } else {
+            throw new InvalidInputError('Invalid key format: expected Buffer or VectorEncryptionKey');
+        }
+       
+        _clientInstance = new RagEncryptionClient(keyMaterial);
     }
     return _clientInstance;
 }
+
 
 /**
  * Encrypts a text string using AES-GCM
@@ -362,6 +409,7 @@ function encryptText(text, keys, options = {}) {
     return client.encryptText(text);
 }
 
+
 /**
  * Decrypts an AES-GCM encrypted text
  * @param {Object} encryptedText - Encrypted text object with ciphertext, iv, and tag
@@ -373,6 +421,7 @@ function decryptText(encryptedText, keys, options = {}) {
     const client = _getClientInstance(keys);
     return client.decryptText(encryptedText.ciphertext, encryptedText.iv, encryptedText.tag);
 }
+
 
 /**
  * Encrypts text deterministically using AES-GCM
@@ -386,6 +435,7 @@ function encryptDeterministicText(value, keys, options = {}) {
     return client.encryptDeterministicText(value);
 }
 
+
 /**
  * Decrypts deterministically encrypted text
  * @param {Buffer} encryptedValue - Encrypted value
@@ -397,6 +447,7 @@ function decryptDeterministicText(encryptedValue, keys, options = {}) {
     const client = _getClientInstance(keys);
     return client.decryptDeterministicText(encryptedValue);
 }
+
 
 // Export additional functions
 export {
