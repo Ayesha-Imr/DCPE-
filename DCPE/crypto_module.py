@@ -1,4 +1,4 @@
-# crypto_module.py (Corrected compute_auth_hash for float to bytes conversion)
+# crypto_module.py 
 
 import numpy as np
 import secrets
