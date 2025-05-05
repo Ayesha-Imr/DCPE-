@@ -9,6 +9,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 import cohere
 from docling.document_converter import DocumentConverter
 
+# Fix import path - Using absolute import to access the DCPE module
 from DCPE.rag_encryption_module import RagEncryptionClient
 
 # Load environment variables

@@ -5,3 +5,8 @@ python-dotenv
 cohere
 docling
 cryptography
+langchain
+langchain-text-splitters
+phe
+pycryptodome
+matplotlib
